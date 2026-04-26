@@ -1,39 +1,54 @@
 import type { DraftTransaction } from "@/domain/transactions/types";
+import type { AccountKind, UserCatalog } from "@/domain/transactions/catalog";
 import { TransactionItem } from "@/components/TransactionItem";
 
 interface TransactionPreviewListProps {
   transactions: DraftTransaction[];
-  onAmountChange: (id: string, amount: number) => void;
-  onTypeChange: (id: string, type: DraftTransaction["type"]) => void;
+  catalog: UserCatalog;
+  onAddCategory: (type: DraftTransaction["type"], name: string) => string | null;
+  onAddAccount: (name: string, kind?: AccountKind) => string | null;
+  onAddSubcategory: (type: DraftTransaction["type"], categoryId: string, name: string) => string | null;
+  noteSuggestions: string[];
+  onChange: (id: string, patch: Partial<DraftTransaction>) => void;
   onDelete: (id: string) => void;
   onConfirm: () => void;
 }
 
 export function TransactionPreviewList({
   transactions,
-  onAmountChange,
-  onTypeChange,
+  catalog,
+  onAddCategory,
+  onAddAccount,
+  onAddSubcategory,
+  noteSuggestions,
+  onChange,
   onDelete,
   onConfirm,
 }: TransactionPreviewListProps) {
   if (!transactions.length) {
     return (
-      <section className="rounded-xl2 border border-dashed border-ink/25 bg-white/30 p-6 text-sm text-ink/70 animate-rise">
-        Пока нет распарсенных транзакций. Вставьте текст и нажмите Parse.
+      <section className="rounded-[28px] border border-dashed border-lavender/25 bg-white/70 p-6 shadow-card animate-rise md:p-7">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate">Draft queue</p>
+        <h2 className="mt-2 text-xl font-semibold text-ink">Draft transactions</h2>
+        <p className="mt-2 text-sm text-slate">Queue is empty. Paste text, click Parse, review items, and then save.</p>
       </section>
     );
   }
 
   return (
-    <section className="rounded-xl2 border border-ink/15 bg-white/70 p-5 shadow-card animate-rise">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-ink">Preview before save</h2>
+    <section className="rounded-[28px] border border-white/80 bg-white/90 p-6 shadow-card animate-rise md:p-7">
+      <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate">Draft queue</p>
+          <h2 className="mt-2 text-xl font-semibold text-ink">Draft transactions</h2>
+          <p className="mt-1 text-sm text-slate">Review each item before save: edit, delete, and confirm.</p>
+        </div>
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded-full bg-clay px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-110"
+          className="rounded-full bg-lavender px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:brightness-105"
         >
-          Confirm & Save
+          Save transactions
         </button>
       </div>
 
@@ -42,12 +57,20 @@ export function TransactionPreviewList({
           <TransactionItem
             key={item.id}
             item={item}
-            onAmountChange={onAmountChange}
-            onTypeChange={onTypeChange}
+            catalog={catalog}
+            onAddCategory={onAddCategory}
+            onAddAccount={onAddAccount}
+            onAddSubcategory={onAddSubcategory}
+            onChange={onChange}
             onDelete={onDelete}
           />
         ))}
       </div>
+      <datalist id="draft-note-suggestions">
+        {noteSuggestions.map((option) => (
+          <option key={option} value={option} />
+        ))}
+      </datalist>
     </section>
   );
 }

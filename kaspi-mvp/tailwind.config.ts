@@ -5,17 +5,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#1e1b18",
-        cream: "#f4efe6",
-        clay: "#dc8758",
-        moss: "#355244",
-        sand: "#d8c8ad",
+        ink: "#1f2937",
+        cream: "#fafbfc",
+        clay: "#ffb8a0",
+        moss: "#4caf50",
+        sand: "#e6e9ef",
+        lavender: "#8b7fe8",
+        lilac: "#ede9ff",
+        peach: "#ffb8a0",
+        mint: "#4caf50",
+        cloud: "#f8f9fa",
+        slate: "#6b7280",
       },
       boxShadow: {
-        card: "0 20px 45px rgba(30, 27, 24, 0.15)",
+        card: "0 2px 8px rgba(15, 23, 42, 0.08)",
+        float: "0 18px 40px rgba(139, 127, 232, 0.12)",
       },
       borderRadius: {
         xl2: "1.25rem",
+        panel: "1rem",
       },
       keyframes: {
         rise: {

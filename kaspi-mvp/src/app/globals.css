@@ -1,26 +1,55 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: light;
+  --background: #f8f9fa;
+  --background-soft: #fafbfc;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --lavender: #8b7fe8;
+  --peach: #ffb8a0;
+  --success: #4caf50;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Manrope", sans-serif;
-  color: #1e1b18;
+  color: var(--text);
   background:
-    radial-gradient(circle at 20% 10%, rgba(220, 135, 88, 0.35), transparent 35%),
-    radial-gradient(circle at 85% 18%, rgba(53, 82, 68, 0.18), transparent 32%),
-    linear-gradient(160deg, #f7f1e8 0%, #efe5d4 100%);
+    radial-gradient(circle at top left, rgba(139, 127, 232, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 184, 160, 0.22), transparent 24%),
+    linear-gradient(180deg, var(--background-soft) 0%, var(--background) 100%);
 }
 
 h1,
 h2,
 h3 {
-  font-family: "Space Grotesk", sans-serif;
+  letter-spacing: -0.03em;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(139, 127, 232, 0.18);
+}
+
+textarea::placeholder,
+input::placeholder {
+  color: rgba(107, 114, 128, 0.85);
 }

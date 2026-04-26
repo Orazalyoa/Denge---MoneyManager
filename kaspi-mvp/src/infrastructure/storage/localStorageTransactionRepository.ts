@@ -3,7 +3,7 @@ import type { Transaction } from "@/domain/transactions/types";
 import { TRANSACTIONS_STORAGE_KEY } from "@/infrastructure/storage/transactionStorageKeys";
 
 export class LocalStorageTransactionRepository implements TransactionRepository {
-  getAll(): Transaction[] {
+  async getAll(): Promise<Transaction[]> {
     if (typeof window === "undefined") return [];
 
     const raw = window.localStorage.getItem(TRANSACTIONS_STORAGE_KEY);
@@ -18,13 +18,20 @@ export class LocalStorageTransactionRepository implements TransactionRepository 
     }
   }
 
-  saveMany(transactions: Transaction[]): void {
+  async saveMany(transactions: Transaction[]): Promise<void> {
     if (typeof window === "undefined") return;
 
-    const current = this.getAll();
+    const current = await this.getAll();
     const merged = [...transactions, ...current].sort((a, b) =>
       a.createdAt < b.createdAt ? 1 : -1,
     );
     window.localStorage.setItem(TRANSACTIONS_STORAGE_KEY, JSON.stringify(merged));
+  }
+
+  async deleteOne(id: string): Promise<void> {
+    if (typeof window === "undefined") return;
+
+    const updated = (await this.getAll()).filter((tx) => tx.id !== id);
+    window.localStorage.setItem(TRANSACTIONS_STORAGE_KEY, JSON.stringify(updated));
   }
 }
