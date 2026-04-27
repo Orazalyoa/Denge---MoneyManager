@@ -21,7 +21,7 @@ function monthIso(): string {
 }
 
 export default function HistoryPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [filter, setFilter] = useState<TransactionFilter>("all");
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("all");
@@ -42,11 +42,12 @@ export default function HistoryPage() {
   }, [user?.id]);
 
   useEffect(() => {
+    if (isLoading) return;
     void (async () => {
       const loaded = await getTransactions(filter, user?.id);
       setAllByFilter(loaded);
     })();
-  }, [filter, tick, user?.id]);
+  }, [filter, tick, user?.id, isLoading]);
 
   const accounts = useMemo(() => getAccounts(catalog), [catalog]);
 
@@ -72,13 +73,10 @@ export default function HistoryPage() {
 
   return (
     <div className="space-y-6 pb-8">
-      <section className="grid gap-4 xl:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
         <StatsCard label="income" value={stats.income} tone="income" />
         <StatsCard label="expense" value={stats.expense} tone="expense" />
         <StatsCard label="transfer (with commission)" value={stats.transferWithCommission} tone="neutral" />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-3">
         <StatsCard label="balance" value={stats.balance} tone="balance" />
         <StatsCard label="profit" value={stats.profit} tone="income" />
         <StatsCard label="deficit" value={stats.deficit} tone="expense" />

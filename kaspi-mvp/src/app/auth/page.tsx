@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  exportTransactionsToMoneyManagerTsv,
+  importTransactionsFromMoneyManagerTsv,
+} from "@/application/transactions/useCases";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 
@@ -12,6 +16,9 @@ export default function AuthPage() {
   const [displayName, setDisplayName] = useState(user?.user_metadata?.display_name ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [exchangeMessage, setExchangeMessage] = useState<string | null>(null);
+  const [isExchangeBusy, setIsExchangeBusy] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setDisplayName(typeof user?.user_metadata?.display_name === "string" ? user.user_metadata.display_name : "");
@@ -63,6 +70,51 @@ export default function AuthPage() {
     await refreshUser();
     setMessage("Profile updated.");
     setIsSubmitting(false);
+  };
+
+  const handleExport = () => {
+    void (async () => {
+      setIsExchangeBusy(true);
+      setExchangeMessage(null);
+      try {
+        const tsv = await exportTransactionsToMoneyManagerTsv(user?.id);
+        const blob = new Blob([tsv], { type: "text/tab-separated-values;charset=utf-8" });
+        const stamp = new Date().toISOString().slice(0, 10);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `money-manager-import-${stamp}.tsv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setExchangeMessage("TSV export completed.");
+      } catch {
+        setExchangeMessage("Export failed. Please retry.");
+      } finally {
+        setIsExchangeBusy(false);
+      }
+    })();
+  };
+
+  const handleImportFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    void (async () => {
+      setIsExchangeBusy(true);
+      setExchangeMessage(null);
+      try {
+        const raw = await file.text();
+        const result = await importTransactionsFromMoneyManagerTsv(raw, user?.id);
+        setExchangeMessage(`Imported: ${result.imported}. Skipped: ${result.skipped}.`);
+      } catch {
+        setExchangeMessage("Import failed. Check TSV format and retry.");
+      } finally {
+        setIsExchangeBusy(false);
+        event.target.value = "";
+      }
+    })();
   };
 
   if (!isConfigured) {
@@ -122,6 +174,42 @@ export default function AuthPage() {
             >
               Logout
             </button>
+
+            <section className="rounded-2xl border border-sand bg-white/70 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate">Data exchange</p>
+              <h2 className="mt-2 text-lg font-semibold text-ink">Export / import</h2>
+              <p className="mt-2 text-sm text-slate">
+                Use TSV compatible with Money Manager import flow.
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  disabled={isExchangeBusy}
+                  className="rounded-full border border-lavender/25 bg-lilac px-4 py-2 text-sm font-semibold text-lavender transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Export TSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => importInputRef.current?.click()}
+                  disabled={isExchangeBusy}
+                  className="rounded-full border border-sand bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-lavender/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Import TSV
+                </button>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".tsv,text/tab-separated-values,text/plain"
+                  className="hidden"
+                  onChange={handleImportFileChange}
+                />
+              </div>
+
+              {exchangeMessage ? <p className="mt-3 text-sm text-slate">{exchangeMessage}</p> : null}
+            </section>
           </div>
         ) : (
           <>

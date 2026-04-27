@@ -15,6 +15,7 @@ export function SidebarNav({ className, onNavigate }: SidebarNavProps) {
   const navItems = [
     { href: "/", label: "Dashboard", caption: "Paste and review", mobileHidden: false },
     { href: "/history", label: "History", caption: "Saved activity", mobileHidden: false },
+    { href: "/calendar", label: "Calendar", caption: "Month and day", mobileHidden: false },
     ...(user
       ? [{ href: "/auth", label: "Profile", caption: "Manage account", mobileHidden: true }]
       : [{ href: "/auth", label: "Auth", caption: "Login or register", mobileHidden: true }]),
@@ -34,13 +35,17 @@ export function SidebarNav({ className, onNavigate }: SidebarNavProps) {
 
       <nav className="mt-6 grid gap-2">
         {navItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
           return (
             <Link
               key={item.href}
               href={item.href}
               onClick={onNavigate}
+              aria-current={isActive ? "page" : undefined}
               className={`${item.mobileHidden ? "hidden lg:block " : ""}${
                 isActive
                   ? "rounded-[18px] border border-lavender/20 bg-lilac px-4 py-3 shadow-card transition"

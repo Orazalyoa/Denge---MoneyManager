@@ -11,6 +11,7 @@ interface TransactionPreviewListProps {
   noteSuggestions: string[];
   onChange: (id: string, patch: Partial<DraftTransaction>) => void;
   onDelete: (id: string) => void;
+  isSaving?: boolean;
   onConfirm: () => void;
 }
 
@@ -23,6 +24,7 @@ export function TransactionPreviewList({
   noteSuggestions,
   onChange,
   onDelete,
+  isSaving = false,
   onConfirm,
 }: TransactionPreviewListProps) {
   if (!transactions.length) {
@@ -46,9 +48,10 @@ export function TransactionPreviewList({
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded-full bg-lavender px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:brightness-105"
+          disabled={isSaving}
+          className="rounded-full bg-lavender px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Save transactions
+          {isSaving ? "Saving..." : "Save transactions"}
         </button>
       </div>
 

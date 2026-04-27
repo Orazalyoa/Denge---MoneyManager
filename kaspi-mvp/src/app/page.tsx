@@ -27,7 +27,7 @@ import { calculateStats } from "@/domain/transactions/stats";
 import type { DraftTransaction, Transaction } from "@/domain/transactions/types";
 
 export default function HomePage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [input, setInput] = useState("");
   const [drafts, setDrafts] = useState<DraftTransaction[]>(() => {
     if (typeof window === "undefined") return [];
@@ -46,6 +46,8 @@ export default function HomePage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [savedTransactions, setSavedTransactions] = useState<Transaction[]>([]);
   const [isCatalogReady, setIsCatalogReady] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   const accounts = useMemo(() => getAccounts(catalog), [catalog]);
 
@@ -63,11 +65,12 @@ export default function HomePage() {
   }, [catalog, user?.id, isCatalogReady]);
 
   useEffect(() => {
+    if (isLoading) return;
     void (async () => {
       const all = await getTransactions("all", user?.id);
       setSavedTransactions(all);
     })();
-  }, [savedTick, user?.id]);
+  }, [savedTick, user?.id, isLoading]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -102,20 +105,41 @@ export default function HomePage() {
     const parsed = parseDraftTransactions(input, catalog);
     setDrafts((prev) => [...prev, ...parsed]);
     setInput("");
+    if (parsed.length) {
+      setSaveFeedback("");
+    }
   };
 
   const handleSave = async () => {
-    if (!drafts.length) return;
+    if (!drafts.length || isSaving) return;
 
     const invalidTransfer = drafts.some((item) => item.type === "transfer" && item.commission < 0);
     if (invalidTransfer) {
+      setSaveFeedback("Transfer commission cannot be negative.");
       return;
     }
 
-    await saveDraftTransactions(drafts, user?.id);
-    setDrafts([]);
-    setInput("");
-    setSavedTick((prev) => prev + 1);
+    setIsSaving(true);
+    try {
+      const result = await saveDraftTransactions(drafts, user?.id, catalog);
+      if (result.savedCount === 0) {
+        setSaveFeedback("Nothing to save. Fill required fields in draft items.");
+        return;
+      }
+
+      setDrafts([]);
+      setInput("");
+      setSavedTick((prev) => prev + 1);
+      setSaveFeedback(
+        result.storage === "cloud"
+          ? "Transactions saved."
+          : "Saved locally. Cloud sync is temporarily unavailable.",
+      );
+    } catch {
+      setSaveFeedback("Save failed. Please retry.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDraftChange = (id: string, patch: Partial<DraftTransaction>) => {
@@ -245,6 +269,9 @@ export default function HomePage() {
       </section>
 
       <section className="grid gap-6">
+        {saveFeedback ? (
+          <p className="rounded-[18px] border border-sand bg-white/80 px-4 py-3 text-sm text-ink">{saveFeedback}</p>
+        ) : null}
         <TransactionPreviewList
           transactions={drafts}
           catalog={catalog}
@@ -254,6 +281,7 @@ export default function HomePage() {
           noteSuggestions={noteSuggestions}
           onChange={handleDraftChange}
           onDelete={handleDelete}
+          isSaving={isSaving}
           onConfirm={() => {
             void handleSave();
           }}
