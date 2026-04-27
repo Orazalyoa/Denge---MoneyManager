@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { StatsCard } from "@/components/StatsCard";
 import { deleteTransaction, getTransactions, loadCatalogForUser } from "@/application/transactions/useCases";
 import { useAuth } from "@/context/AuthContext";
-import { EMPTY_USER_CATALOG, getAccounts, loadUserCatalog, type UserCatalog } from "@/domain/transactions/catalog";
+import { EMPTY_USER_CATALOG, getAccounts, type UserCatalog } from "@/domain/transactions/catalog";
 import { calculateStats } from "@/domain/transactions/stats";
 import type { Transaction, TransactionFilter } from "@/domain/transactions/types";
 import { formatDateOnly, formatDateTime, formatKZT, formatMonthLabel } from "@/shared/utils/formatters";
@@ -28,10 +28,7 @@ export default function HistoryPage() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [selectedMonth, setSelectedMonth] = useState(monthIso());
   const [tick, setTick] = useState(0);
-  const [catalog, setCatalog] = useState<UserCatalog>(() => {
-    if (typeof window === "undefined") return EMPTY_USER_CATALOG;
-    return loadUserCatalog();
-  });
+  const [catalog, setCatalog] = useState<UserCatalog>(EMPTY_USER_CATALOG);
   const [allByFilter, setAllByFilter] = useState<Transaction[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 

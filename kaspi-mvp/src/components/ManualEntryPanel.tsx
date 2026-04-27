@@ -11,9 +11,10 @@ import {
   type UserCatalog,
 } from "@/domain/transactions/catalog";
 import { evaluateMathExpression } from "@/shared/utils/math";
+import { InlineAddSelect } from "@/components/InlineAddSelect";
 
 interface ManualEntryPanelProps {
-  onAdd: (draft: DraftTransaction) => void;
+  onSave: (draft: DraftTransaction) => Promise<void>;
   onAddCategory: (type: TransactionType, name: string) => string | null;
   onAddAccount: (name: string, kind?: AccountKind) => string | null;
   onAddSubcategory: (type: TransactionType, categoryId: string, name: string) => string | null;
@@ -28,7 +29,7 @@ function todayIso(): string {
 }
 
 export function ManualEntryPanel({
-  onAdd,
+  onSave,
   onAddCategory,
   onAddAccount,
   onAddSubcategory,
@@ -45,6 +46,7 @@ export function ManualEntryPanel({
   const [subcategory, setSubcategory] = useState("");
   const [commissionExpression, setCommissionExpression] = useState("0");
   const [feedback, setFeedback] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   const categories = useMemo(() => getCategories(type, catalog), [catalog, type]);
   const subcategories = useMemo(() => getSubcategories(type, categoryId, catalog), [catalog, type, categoryId]);
@@ -70,7 +72,7 @@ export function ManualEntryPanel({
       return;
     }
 
-    onAdd({
+    const draft = {
       id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       type,
       amount: Math.round(amount),
@@ -82,12 +84,24 @@ export function ManualEntryPanel({
       categoryId,
       subcategory,
       rawText: "Manual entry",
-    });
+    };
 
-    setAmountExpression("");
-    setNote("");
-    setSubcategory("");
-    setFeedback("Added to preview.");
+    setIsSaving(true);
+    setFeedback("");
+    onSave(draft)
+      .then(() => {
+        setAmountExpression("");
+        setNote("");
+        setSubcategory("");
+        setFeedback("✅ Saved!");
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Save failed";
+        setFeedback(`❌ ${msg}`);
+      })
+      .finally(() => {
+        setIsSaving(false);
+      });
   };
 
   return (
@@ -164,92 +178,41 @@ export function ManualEntryPanel({
 
         <label className="text-sm text-slate">
           Account
-          <select
+          <InlineAddSelect
             value={accountId}
-            onChange={(e) => {
-              const selected = e.target.value;
-              if (selected === "__add_new_account__") {
-                const nextName = window.prompt("New account name");
-                if (!nextName) return;
-                const nextId = onAddAccount(nextName, "bank_card");
-                if (nextId) {
-                  setAccountId(nextId);
-                }
-                return;
-              }
-
-              setAccountId(selected);
-            }}
-            className="mt-2 w-full rounded-2xl border border-sand bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-lavender focus:ring-4 focus:ring-lavender/10"
-          >
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-            <option value="__add_new_account__">+ Add account...</option>
-          </select>
+            options={accounts.map((a) => ({ id: a.id, label: a.name }))}
+            onChange={(id) => setAccountId(id)}
+            onAdd={(name) => onAddAccount(name, "bank_card")}
+            addLabel="+ Add account…"
+            addPlaceholder="Account name…"
+          />
         </label>
 
         <label className="text-sm text-slate">
           Category
-          <select
+          <InlineAddSelect
             value={categoryId}
-            onChange={(e) => {
-              const selected = e.target.value;
-              if (selected === "__add_new__") {
-                const nextName = window.prompt("New category name");
-                if (!nextName) return;
-                const nextId = onAddCategory(type, nextName);
-                if (nextId) {
-                  setCategoryId(nextId);
-                  setSubcategory("");
-                }
-                return;
-              }
-
-              setCategoryId(selected);
-              setSubcategory("");
-            }}
-            className="mt-2 w-full rounded-2xl border border-sand bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-lavender focus:ring-4 focus:ring-lavender/10"
-          >
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-            <option value="__add_new__">+ Add category...</option>
-          </select>
+            options={categories.map((c) => ({ id: c.id, label: c.name }))}
+            onChange={(id) => { setCategoryId(id); setSubcategory(""); }}
+            onAdd={(name) => onAddCategory(type, name)}
+            addLabel="+ Add category…"
+            addPlaceholder="Category name…"
+          />
         </label>
 
         <label className="text-sm text-slate">
           Subcategory
-          <select
-            value={subcategory}
-            onChange={(e) => {
-              const selected = e.target.value;
-              if (selected === "__add_new_subcategory__") {
-                const nextName = window.prompt("New subcategory name");
-                if (!nextName) return;
-                const nextValue = onAddSubcategory(type, categoryId, nextName);
-                if (nextValue) {
-                  setSubcategory(nextValue);
-                }
-                return;
-              }
-
-              setSubcategory(selected);
-            }}
-            className="mt-2 w-full rounded-2xl border border-sand bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-lavender focus:ring-4 focus:ring-lavender/10"
-          >
-            <option value="">No subcategory</option>
-            {subcategories.map((item) => (
-              <option key={item.id} value={item.name}>
-                {item.name}
-              </option>
-            ))}
-            <option value="__add_new_subcategory__">+ Add subcategory...</option>
-          </select>
+          <InlineAddSelect
+            value={subcategory || ""}
+            options={[
+              { id: "", label: "No subcategory" },
+              ...subcategories.map((s) => ({ id: s.name, label: s.name })),
+            ]}
+            onChange={(val) => setSubcategory(val)}
+            onAdd={(name) => onAddSubcategory(type, categoryId, name)}
+            addLabel="+ Add subcategory…"
+            addPlaceholder="Subcategory name…"
+          />
         </label>
 
         {type === "transfer" ? (
@@ -289,11 +252,12 @@ export function ManualEntryPanel({
         <button
           type="button"
           onClick={handleAdd}
-          className="rounded-full bg-lavender px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:brightness-105"
+          disabled={isSaving}
+          className="rounded-full bg-lavender px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:brightness-105 disabled:opacity-60"
         >
-          Add to preview
+          {isSaving ? "Saving…" : "Save transaction"}
         </button>
-        <p className="text-sm text-slate">{feedback}</p>
+        {feedback ? <p className="text-sm text-slate">{feedback}</p> : null}
       </div>
     </section>
   );

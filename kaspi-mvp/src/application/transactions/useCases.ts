@@ -3,6 +3,7 @@ import { calculateStats } from "@/domain/transactions/stats";
 import type { DraftTransaction, Transaction, TransactionFilter } from "@/domain/transactions/types";
 import {
   EMPTY_USER_CATALOG,
+  clearUserCatalog,
   getAccounts,
   getAccountName,
   getCategoryName,
@@ -14,7 +15,7 @@ import {
 import { LocalStorageTransactionRepository } from "@/infrastructure/storage/localStorageTransactionRepository";
 import { SupabaseCatalogRepository } from "@/infrastructure/storage/supabaseCatalogRepository";
 import { SupabaseTransactionRepository } from "@/infrastructure/storage/supabaseTransactionRepository";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import { isSupabaseConfigured, isSupabaseStorageEnabled } from "@/lib/supabase";
 
 const MONEY_MANAGER_HEADER = [
   "Date",
@@ -28,13 +29,19 @@ const MONEY_MANAGER_HEADER = [
 ].join("\t");
 
 type MoneyManagerKind = "Income" | "Expenses" | "Transfer-Out";
+export type DateRangePreset = "monthly" | "lastM" | "annually" | "lastY" | "total";
+export interface DateRangeFilter {
+  preset: DateRangePreset;
+  value?: number;
+}
+
 export type SaveDraftResult = {
   savedCount: number;
   storage: "cloud" | "local";
 };
 
 function resolveRepository(userId?: string) {
-  if (userId && isSupabaseConfigured) {
+  if (userId && isSupabaseStorageEnabled()) {
     return new SupabaseTransactionRepository(userId);
   }
 
@@ -76,47 +83,68 @@ async function getAllWithMigration(userId?: string): Promise<Transaction[]> {
     return new LocalStorageTransactionRepository().getAll();
   }
 
+  if (!isSupabaseStorageEnabled()) {
+    return new LocalStorageTransactionRepository(userId).getAll();
+  }
+
   console.log(`[SYNC] Syncing transactions for user=${userId}...`);
-  const cloudRepository = isSupabaseConfigured ? new SupabaseTransactionRepository(userId) : null;
+
+  const cloudRepository = new SupabaseTransactionRepository(userId);
   const localRepository = new LocalStorageTransactionRepository(userId);
   const guestRepository = new LocalStorageTransactionRepository();
-  
-  const [cloudData, localData, guestData] = await Promise.all([
-    cloudRepository ? cloudRepository.getAll() : Promise.resolve([]),
-    localRepository.getAll(),
-    guestRepository.getAll(),
-  ]);
-  
+  const localScopedSeed = await localRepository.getAll();
+
+  const migrationKey = "kaspi_mvp_guest_migrated_v1";
+  const hasMigrated = typeof window !== "undefined" && window.localStorage.getItem(migrationKey) === userId;
+
+  let guestData: Transaction[] = [];
+
+  if (!hasMigrated) {
+    console.log("[SYNC] First login - checking for guest data to migrate...");
+    guestData = await guestRepository.getAll();
+    if (guestData.length > 0) {
+      console.log(`[SYNC] Found ${guestData.length} guest transactions - migrating to user account`);
+    }
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(migrationKey, userId);
+    }
+  }
+
+  const cloudData = await cloudRepository.getAll();
+
   console.log(
-    `[SYNC] Data sources: cloud=${cloudData.length}, local-scoped=${localData.length}, guest=${guestData.length}`
+    `[SYNC] Data sources: cloud=${cloudData.length}, local-scoped-seed=${localScopedSeed.length}, guest-migrating=${guestData.length}`
   );
 
-  if (cloudData.length === 0 && localData.length === 0 && guestData.length === 0) {
+  if (cloudData.length === 0 && localScopedSeed.length === 0 && guestData.length === 0) {
     console.log("[SYNC] Empty: no transactions found");
+    localRepository.clear();
     return [];
   }
 
-  const merged = mergeTransactions(cloudData, localData, guestData);
+  const merged = mergeTransactions(cloudData, localScopedSeed, guestData);
   console.log(`[SYNC] Merged total: ${merged.length} transactions (deduplicated)`);
 
   const missingInCloud = merged.filter((localTx) => !cloudData.some((cloudTx) => cloudTx.id === localTx.id));
-  if (cloudRepository && missingInCloud.length > 0) {
+  let canClearLocalSeed = true;
+  if (missingInCloud.length > 0) {
     console.log(`[SYNC] Syncing ${missingInCloud.length} missing items to cloud...`);
     try {
       await cloudRepository.saveMany(missingInCloud);
     } catch (error) {
+      // Do not block reads/saves if backfill fails; keep local seed for next retry.
+      canClearLocalSeed = false;
       console.warn("[SYNC] Cloud sync skipped (will retry on next load):", error);
     }
   }
 
-  if (merged.length > 0) {
-    await localRepository.saveMany(merged);
-    console.log("[SYNC] Cached to local: " + merged.length);
+  if (canClearLocalSeed) {
+    localRepository.clear();
   }
 
-  if (guestData.length > 0) {
-    guestRepository.clear();
-    console.log("[SYNC] Guest bucket cleared after claiming");
+  if (guestData.length > 0 && !hasMigrated) {
+    await guestRepository.clear();
+    console.log("[SYNC] Guest bucket cleared after migration");
   }
 
   return merged;
@@ -166,6 +194,46 @@ function toTransactionType(kind: string): Transaction["type"] | null {
   if (normalized === "expenses" || normalized === "expense") return "expense";
   if (normalized === "transfer-out" || normalized === "transfer") return "transfer";
   return null;
+}
+
+function normalizeDateRangeFilter(filter?: DateRangeFilter): Required<DateRangeFilter> {
+  if (!filter) {
+    return { preset: "total", value: 0 };
+  }
+
+  const safeValue = Number.isFinite(filter.value) ? Math.max(1, Math.floor(filter.value as number)) : 1;
+  return { preset: filter.preset, value: safeValue };
+}
+
+function isTransactionInDateRange(isoDate: string, filter?: DateRangeFilter): boolean {
+  const txDate = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(txDate.getTime())) return false;
+
+  const now = new Date();
+  const normalized = normalizeDateRangeFilter(filter);
+
+  if (normalized.preset === "total") return true;
+
+  if (normalized.preset === "monthly") {
+    return txDate.getFullYear() === now.getFullYear() && txDate.getMonth() === now.getMonth();
+  }
+
+  if (normalized.preset === "annually") {
+    return txDate.getFullYear() === now.getFullYear();
+  }
+
+  if (normalized.preset === "lastM") {
+    const start = new Date(now.getFullYear(), now.getMonth() - (normalized.value - 1), 1);
+    return txDate >= start && txDate <= now;
+  }
+
+  if (normalized.preset === "lastY") {
+    const startYear = now.getFullYear() - (normalized.value - 1);
+    const start = new Date(startYear, 0, 1);
+    return txDate >= start && txDate <= now;
+  }
+
+  return true;
 }
 
 function slugifyForId(value: string): string {
@@ -235,32 +303,27 @@ export async function saveDraftTransactions(
       Boolean(draft.type),
   );
   if (!validDrafts.length) {
-    return { savedCount: 0, storage: userId && isSupabaseConfigured ? "cloud" : "local" };
+    return { savedCount: 0, storage: userId && isSupabaseStorageEnabled() ? "cloud" : "local" };
   }
 
   const transactions = await toPersistedTransactions(validDrafts, userId, catalog);
   const repository = resolveRepository(userId);
-  const useCloudStorage = Boolean(userId && isSupabaseConfigured);
+  const useCloudStorage = Boolean(userId && isSupabaseStorageEnabled());
 
-  try {
-    console.log(`[APP] Saving ${transactions.length} transactions to ${useCloudStorage ? "cloud" : "local"}`);
-    await repository.saveMany(transactions);
-    if (userId) {
-      await new LocalStorageTransactionRepository(userId).saveMany(transactions);
-    }
-    return { savedCount: transactions.length, storage: useCloudStorage ? "cloud" : "local" };
-  } catch (error) {
-    if (!userId || !useCloudStorage) throw error;
-
-    console.warn("[APP] Cloud save failed, falling back to local:", error);
-    // Local-first fallback: keep user flow working even if cloud write temporarily fails.
-    await new LocalStorageTransactionRepository(userId).saveMany(transactions);
-    return { savedCount: transactions.length, storage: "local" };
+  console.log(`[APP] Saving ${transactions.length} transactions to ${useCloudStorage ? "cloud" : "local"}`);
+  await repository.saveMany(transactions);
+  if (userId && isSupabaseStorageEnabled()) {
+    new LocalStorageTransactionRepository(userId).clear();
   }
+
+  return { savedCount: transactions.length, storage: useCloudStorage ? "cloud" : "local" };
 }
 
-export async function exportTransactionsToMoneyManagerTsv(userId?: string): Promise<string> {
-  const transactions = await getAllWithMigration(userId);
+export async function exportTransactionsToMoneyManagerTsv(
+  userId?: string,
+  dateRange?: DateRangeFilter,
+): Promise<string> {
+  const transactions = (await getAllWithMigration(userId)).filter((tx) => isTransactionInDateRange(tx.date, dateRange));
   const lines = transactions
     .slice()
     .sort((a, b) => (a.date < b.date ? -1 : 1))
@@ -284,6 +347,7 @@ export async function exportTransactionsToMoneyManagerTsv(userId?: string): Prom
 export async function importTransactionsFromMoneyManagerTsv(
   rawTsv: string,
   userId?: string,
+  dateRange?: DateRangeFilter,
 ): Promise<{ imported: number; skipped: number }> {
   const lines = rawTsv
     .replace(/^\uFEFF/, "")
@@ -332,6 +396,12 @@ export async function importTransactionsFromMoneyManagerTsv(
     const categoryId = matchedCategory?.id ?? `import-${txType}-${slugifyForId(categoryName)}`;
     const subcategory = subcategoryRaw.trim();
 
+    const isoDate = toIsoDateOrToday(dateRaw, today);
+    if (!isTransactionInDateRange(isoDate, dateRange)) {
+      skipped += 1;
+      continue;
+    }
+
     const idBase = `import-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     importedTx.push({
       id: ensureUniqueId(idBase, usedIds),
@@ -340,7 +410,7 @@ export async function importTransactionsFromMoneyManagerTsv(
       commission: 0,
       availableBalance: null,
       note: noteRaw.trim(),
-      date: toIsoDateOrToday(dateRaw, today),
+      date: isoDate,
       accountId,
       accountName,
       categoryId,
@@ -395,15 +465,11 @@ export async function importTransactionsFromMoneyManagerTsv(
     };
     await saveCatalogForUser(mergedCatalog, userId);
 
-    if (!userId || !isSupabaseConfigured) {
+    if (!userId || !isSupabaseStorageEnabled()) {
       await new LocalStorageTransactionRepository(userId).saveMany(importedTx);
     } else {
-      try {
-        await new SupabaseTransactionRepository(userId).saveMany(importedTx);
-        await new LocalStorageTransactionRepository(userId).saveMany(importedTx);
-      } catch {
-        await new LocalStorageTransactionRepository(userId).saveMany(importedTx);
-      }
+      await new SupabaseTransactionRepository(userId).saveMany(importedTx);
+      new LocalStorageTransactionRepository(userId).clear();
     }
   }
 
@@ -416,16 +482,14 @@ export async function deleteTransaction(id: string, userId?: string): Promise<vo
     return;
   }
 
-  if (!isSupabaseConfigured) {
+  if (!isSupabaseStorageEnabled()) {
     await new LocalStorageTransactionRepository(userId).deleteOne(id);
     return;
   }
 
   const cloudRepository = new SupabaseTransactionRepository(userId);
   await cloudRepository.deleteOne(id);
-
-  const localRepository = new LocalStorageTransactionRepository(userId);
-  await localRepository.deleteOne(id);
+  new LocalStorageTransactionRepository(userId).clear();
 }
 
 export async function getTransactions(filter: TransactionFilter = "all", userId?: string): Promise<Transaction[]> {
@@ -438,14 +502,40 @@ export async function getTransactionStats(userId?: string) {
   return calculateStats(await getAllWithMigration(userId));
 }
 
+export async function syncAccountData(userId?: string): Promise<void> {
+  if (!userId) return;
+
+  await Promise.all([getAllWithMigration(userId), loadCatalogForUser(userId)]);
+}
+
 export async function loadCatalogForUser(userId?: string): Promise<UserCatalog> {
   if (!userId) return loadUserCatalog();
-  if (!isSupabaseConfigured) {
+  if (!isSupabaseStorageEnabled()) {
     return loadUserCatalog(userId);
   }
 
   const cloudCatalog = await new SupabaseCatalogRepository(userId).getCatalog();
-  const guestCatalog = loadUserCatalog();
+  clearUserCatalog(userId);
+
+  const catalogMigrationKey = "kaspi_mvp_catalog_migrated_v1";
+  const hasCatalogMigrated = typeof window !== "undefined" && window.localStorage.getItem(catalogMigrationKey) === userId;
+
+  let guestCatalog = EMPTY_USER_CATALOG;
+  if (!hasCatalogMigrated) {
+    guestCatalog = loadUserCatalog();
+    if (
+      guestCatalog.accounts.length > 0 ||
+      guestCatalog.categories.length > 0 ||
+      guestCatalog.subcategories.length > 0 ||
+      guestCatalog.rules.length > 0
+    ) {
+      console.log("[SYNC] First login - migrating guest catalog to user account");
+    }
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(catalogMigrationKey, userId);
+    }
+  }
+
   const isCloudEmpty =
     cloudCatalog.accounts.length === 0 &&
     cloudCatalog.categories.length === 0 &&
@@ -453,48 +543,52 @@ export async function loadCatalogForUser(userId?: string): Promise<UserCatalog> 
     cloudCatalog.rules.length === 0;
 
   if (isCloudEmpty) {
-    const localCatalog = loadUserCatalog(userId);
-    const mergedCatalog = mergeCatalogs(localCatalog, guestCatalog);
-    const hasLocalData =
-      mergedCatalog.accounts.length > 0 ||
-      mergedCatalog.categories.length > 0 ||
-      mergedCatalog.subcategories.length > 0 ||
-      mergedCatalog.rules.length > 0;
-    if (hasLocalData) {
-      await new SupabaseCatalogRepository(userId).saveCatalog(mergedCatalog);
-      saveUserCatalog(mergedCatalog, userId);
-      if (
-        guestCatalog.accounts.length > 0 ||
-        guestCatalog.categories.length > 0 ||
-        guestCatalog.subcategories.length > 0 ||
-        guestCatalog.rules.length > 0
-      ) {
-        saveUserCatalog(EMPTY_USER_CATALOG);
-      }
-      return mergedCatalog;
+    const hasGuestData =
+      guestCatalog.accounts.length > 0 ||
+      guestCatalog.categories.length > 0 ||
+      guestCatalog.subcategories.length > 0 ||
+      guestCatalog.rules.length > 0;
+    if (hasGuestData) {
+      await new SupabaseCatalogRepository(userId).saveCatalog(guestCatalog);
+      saveUserCatalog(EMPTY_USER_CATALOG);
+      console.log("[SYNC] Guest catalog cleared after migration");
+      return guestCatalog;
     }
 
-    return EMPTY_USER_CATALOG;
+    const hasCloudData =
+      cloudCatalog.accounts.length > 0 ||
+      cloudCatalog.categories.length > 0 ||
+      cloudCatalog.subcategories.length > 0 ||
+      cloudCatalog.rules.length > 0;
+    if (!hasCloudData) {
+      return EMPTY_USER_CATALOG;
+    }
+
+    return cloudCatalog;
   }
 
   const mergedCloudCatalog = mergeCatalogs(cloudCatalog, guestCatalog);
-  const hasGuestData =
+
+  if (!hasCatalogMigrated && (
     guestCatalog.accounts.length > 0 ||
     guestCatalog.categories.length > 0 ||
     guestCatalog.subcategories.length > 0 ||
-    guestCatalog.rules.length > 0;
-
-  if (hasGuestData) {
+    guestCatalog.rules.length > 0
+  )) {
     await new SupabaseCatalogRepository(userId).saveCatalog(mergedCloudCatalog);
     saveUserCatalog(EMPTY_USER_CATALOG);
+    console.log("[SYNC] Guest catalog cleared after migration");
   }
 
-  saveUserCatalog(mergedCloudCatalog, userId);
   return mergedCloudCatalog;
 }
 
 export async function saveCatalogForUser(catalog: UserCatalog, userId?: string): Promise<void> {
-  saveUserCatalog(catalog, userId);
-  if (!userId || !isSupabaseConfigured) return;
+  if (!userId || !isSupabaseStorageEnabled()) {
+    saveUserCatalog(catalog, userId);
+    return;
+  }
+
+  clearUserCatalog(userId);
   await new SupabaseCatalogRepository(userId).saveCatalog(catalog);
 }

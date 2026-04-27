@@ -1,3 +1,5 @@
+"use client";
+
 import type { DraftTransaction } from "@/domain/transactions/types";
 import {
   getAccounts,
@@ -8,6 +10,7 @@ import {
   type UserCatalog,
 } from "@/domain/transactions/catalog";
 import { formatKZT } from "@/shared/utils/formatters";
+import { InlineAddSelect } from "@/components/InlineAddSelect";
 
 interface TransactionItemProps {
   item: DraftTransaction;
@@ -84,89 +87,41 @@ export function TransactionItem({
 
       <label className="text-sm text-slate">
         Account
-        <select
+        <InlineAddSelect
           value={item.accountId}
-          onChange={(e) => {
-            const selected = e.target.value;
-            if (selected === "__add_new_account__") {
-              const nextName = window.prompt("New account name");
-              if (!nextName) return;
-              const nextId = onAddAccount(nextName, "bank_card");
-              if (nextId) {
-                onChange(item.id, { accountId: nextId });
-              }
-              return;
-            }
-
-            onChange(item.id, { accountId: selected });
-          }}
-          className="mt-2 w-full rounded-2xl border border-sand bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-lavender focus:ring-4 focus:ring-lavender/10"
-        >
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
-          <option value="__add_new_account__">+ Add account...</option>
-        </select>
+          options={accounts.map((a) => ({ id: a.id, label: a.name }))}
+          onChange={(id) => onChange(item.id, { accountId: id })}
+          onAdd={(name) => onAddAccount(name, "bank_card")}
+          addLabel="+ Add account…"
+          addPlaceholder="Account name…"
+        />
       </label>
 
       <label className="text-sm text-slate">
         Category
-        <select
+        <InlineAddSelect
           value={item.categoryId}
-          onChange={(e) => {
-            const selected = e.target.value;
-            if (selected === "__add_new__") {
-              const nextName = window.prompt("New category name");
-              if (!nextName) return;
-              const nextId = onAddCategory(item.type, nextName);
-              if (nextId) {
-                onChange(item.id, { categoryId: nextId, subcategory: "" });
-              }
-              return;
-            }
-            onChange(item.id, { categoryId: selected, subcategory: "" });
-          }}
-          className="mt-2 w-full rounded-2xl border border-sand bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-lavender focus:ring-4 focus:ring-lavender/10"
-        >
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-          <option value="__add_new__">+ Add category...</option>
-        </select>
+          options={categories.map((c) => ({ id: c.id, label: c.name }))}
+          onChange={(id) => onChange(item.id, { categoryId: id, subcategory: "" })}
+          onAdd={(name) => onAddCategory(item.type, name)}
+          addLabel="+ Add category…"
+          addPlaceholder="Category name…"
+        />
       </label>
 
       <label className="text-sm text-slate">
         Subcategory
-        <select
-          value={item.subcategory}
-          onChange={(e) => {
-            const selected = e.target.value;
-            if (selected === "__add_new_subcategory__") {
-              const nextName = window.prompt("New subcategory name");
-              if (!nextName) return;
-              const nextValue = onAddSubcategory(item.type, item.categoryId, nextName);
-              if (nextValue) {
-                onChange(item.id, { subcategory: nextValue });
-              }
-              return;
-            }
-
-            onChange(item.id, { subcategory: selected });
-          }}
-          className="mt-2 w-full rounded-2xl border border-sand bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-lavender focus:ring-4 focus:ring-lavender/10"
-        >
-          <option value="">No subcategory</option>
-          {subcategories.map((option) => (
-            <option key={option.id} value={option.name}>
-              {option.name}
-            </option>
-          ))}
-          <option value="__add_new_subcategory__">+ Add subcategory...</option>
-        </select>
+        <InlineAddSelect
+          value={item.subcategory || ""}
+          options={[
+            { id: "", label: "No subcategory" },
+            ...subcategories.map((s) => ({ id: s.name, label: s.name })),
+          ]}
+          onChange={(val) => onChange(item.id, { subcategory: val })}
+          onAdd={(name) => onAddSubcategory(item.type, item.categoryId, name)}
+          addLabel="+ Add subcategory…"
+          addPlaceholder="Subcategory name…"
+        />
       </label>
 
       <label className="text-sm text-slate md:col-span-2">

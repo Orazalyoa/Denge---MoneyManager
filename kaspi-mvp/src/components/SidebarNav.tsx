@@ -16,6 +16,7 @@ export function SidebarNav({ className, onNavigate }: SidebarNavProps) {
     { href: "/", label: "Dashboard", caption: "Paste and review", mobileHidden: false },
     { href: "/history", label: "History", caption: "Saved activity", mobileHidden: false },
     { href: "/calendar", label: "Calendar", caption: "Month and day", mobileHidden: false },
+    { href: "/templates", label: "Templates", caption: "Auto-assign rules", mobileHidden: false },
     ...(user
       ? [{ href: "/auth", label: "Profile", caption: "Manage account", mobileHidden: true }]
       : [{ href: "/auth", label: "Auth", caption: "Login or register", mobileHidden: true }]),

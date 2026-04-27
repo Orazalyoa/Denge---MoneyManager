@@ -194,6 +194,11 @@ export function saveUserCatalog(catalog: UserCatalog, scope?: string): void {
   window.localStorage.setItem(getUserCatalogStorageKey(scope), JSON.stringify(catalog));
 }
 
+export function clearUserCatalog(scope?: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(getUserCatalogStorageKey(scope));
+}
+
 export function getAccounts(catalog: UserCatalog = EMPTY_USER_CATALOG): FinanceAccount[] {
   return [...DEFAULT_ACCOUNTS, ...catalog.accounts];
 }

@@ -1,6 +1,6 @@
 import type { UserCatalog } from "@/domain/transactions/catalog";
 import { EMPTY_USER_CATALOG } from "@/domain/transactions/catalog";
-import { supabase } from "@/lib/supabase";
+import { markSupabaseStorageUnavailable, supabase } from "@/lib/supabase";
 
 interface SupabaseCatalogRow {
   user_id: string;
@@ -21,6 +21,7 @@ export class SupabaseCatalogRepository {
       .maybeSingle();
 
     if (error) {
+      markSupabaseStorageUnavailable(error);
       console.error("Failed to fetch catalog from Supabase", error);
       return EMPTY_USER_CATALOG;
     }
@@ -41,6 +42,7 @@ export class SupabaseCatalogRepository {
     );
 
     if (error) {
+      markSupabaseStorageUnavailable(error);
       console.error("Failed to save catalog to Supabase", error);
       throw error;
     }

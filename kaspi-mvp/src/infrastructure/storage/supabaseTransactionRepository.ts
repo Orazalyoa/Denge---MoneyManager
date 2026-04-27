@@ -1,6 +1,6 @@
 import type { TransactionRepository } from "@/domain/transactions/repository";
 import type { Transaction } from "@/domain/transactions/types";
-import { supabase } from "@/lib/supabase";
+import { markSupabaseStorageUnavailable, supabase } from "@/lib/supabase";
 
 interface SupabaseTransactionRow {
   id: string;
@@ -19,6 +19,44 @@ interface SupabaseTransactionRow {
   source: "kaspi";
   raw_text: string;
   created_at: string;
+}
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function hash32(input: string, seed: number): number {
+  let hash = seed >>> 0;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function toUuidFromString(input: string): string {
+  const h1 = hash32(input, 0x811c9dc5);
+  const h2 = hash32(input, 0x9e3779b1);
+  const h3 = hash32(input, 0x85ebca6b);
+  const h4 = hash32(input, 0xc2b2ae35);
+  const hex = [h1, h2, h3, h4]
+    .map((part) => part.toString(16).padStart(8, "0"))
+    .join("")
+    .slice(0, 32)
+    .split("");
+
+  // UUID v4 variant bits.
+  hex[12] = "4";
+  const variant = parseInt(hex[16], 16);
+  hex[16] = ((variant & 0x3) | 0x8).toString(16);
+
+  const normalized = hex.join("");
+  return `${normalized.slice(0, 8)}-${normalized.slice(8, 12)}-${normalized.slice(12, 16)}-${normalized.slice(16, 20)}-${normalized.slice(20, 32)}`;
+}
+
+function normalizeTransactionId(id: string): string {
+  const value = id.trim().toLowerCase();
+  if (UUID_REGEX.test(value)) return value;
+  return toUuidFromString(value || "empty-id");
 }
 
 function toTransaction(row: SupabaseTransactionRow): Transaction {
@@ -43,7 +81,7 @@ function toTransaction(row: SupabaseTransactionRow): Transaction {
 
 function toRow(userId: string, tx: Transaction): SupabaseTransactionRow {
   return {
-    id: tx.id,
+    id: normalizeTransactionId(tx.id),
     user_id: userId,
     type: tx.type,
     amount: tx.amount,
@@ -75,6 +113,7 @@ export class SupabaseTransactionRepository implements TransactionRepository {
       .order("created_at", { ascending: false });
 
     if (error) {
+      markSupabaseStorageUnavailable(error);
       console.error("❌ Supabase fetch failed:", error.message, error.code, `(user=${this.userId})`);
       return [];
     }
@@ -89,18 +128,24 @@ export class SupabaseTransactionRepository implements TransactionRepository {
     if (!supabase || transactions.length === 0) return;
 
     const rows = transactions.map((tx) => toRow(this.userId, tx));
-    const { error } = await supabase.from("transactions").upsert(rows, { onConflict: "id" });
-    if (error) {
+    let result = await supabase.from("transactions").upsert(rows, { onConflict: "user_id,id" });
+
+    if (result.error?.code === "42P10") {
+      result = await supabase.from("transactions").upsert(rows, { onConflict: "id" });
+    }
+
+    if (result.error) {
+      markSupabaseStorageUnavailable(result.error);
       console.error(
         "❌ Supabase save failed:",
-        error.message,
-        error.code,
+        result.error.message,
+        result.error.code,
         `(${transactions.length} items, user=${this.userId})`
       );
-      throw error;
-    } else {
-      console.log("✅ Synced to Supabase:", transactions.length, "transactions");
+      throw result.error;
     }
+
+    console.log("✅ Synced to Supabase:", transactions.length, "transactions");
   }
 
   async deleteOne(id: string): Promise<void> {
@@ -113,6 +158,7 @@ export class SupabaseTransactionRepository implements TransactionRepository {
       .eq("id", id);
 
     if (error) {
+      markSupabaseStorageUnavailable(error);
       console.error("❌ Supabase delete failed:", error.message, error.code, `(id=${id}, user=${this.userId})`);
       throw error;
     } else {

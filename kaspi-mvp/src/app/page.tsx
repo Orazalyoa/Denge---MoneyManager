@@ -24,7 +24,6 @@ import {
   getAccounts,
   getCategories,
   getSubcategories,
-  loadUserCatalog,
   type AccountKind,
   type UserCatalog,
 } from "@/domain/transactions/catalog";
@@ -91,17 +90,8 @@ export default function HomePage() {
   const { user, isLoading } = useAuth();
   const draftStorageKey = useMemo(() => getDraftQueueStorageKey(user?.id), [user?.id]);
   const [input, setInput] = useState("");
-  const [drafts, setDrafts] = useState<DraftTransaction[]>(() => {
-    try {
-      return readDraftQueue();
-    } catch {
-      return [];
-    }
-  });
-  const [catalog, setCatalog] = useState<UserCatalog>(() => {
-    if (typeof window === "undefined") return EMPTY_USER_CATALOG;
-    return loadUserCatalog();
-  });
+  const [drafts, setDrafts] = useState<DraftTransaction[]>([]);
+  const [catalog, setCatalog] = useState<UserCatalog>(EMPTY_USER_CATALOG);
   const [savedTick, setSavedTick] = useState(0);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [savedTransactions, setSavedTransactions] = useState<Transaction[]>([]);
@@ -219,7 +209,11 @@ export default function HomePage() {
       setSaveFeedback(message);
     } catch (error) {
       console.error("\u274c Save failed:", error);
-      setSaveFeedback("Save failed. Please retry.");
+      const details =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Unknown error";
+      setSaveFeedback(`Save failed: ${details}`);
     } finally {
       setIsSaving(false);
     }
@@ -308,8 +302,9 @@ export default function HomePage() {
     return createdName;
   };
 
-  const handleAddManualDraft = (draft: DraftTransaction) => {
-    setDrafts((prev) => [draft, ...prev]);
+  const handleSaveManualDraft = async (draft: DraftTransaction): Promise<void> => {
+    await saveDraftTransactions([draft], user?.id, catalog);
+    setSavedTick((prev) => prev + 1);
   };
 
   return (
@@ -339,37 +334,37 @@ export default function HomePage() {
         <StatsCard label="transfer (with commission)" value={overallStats.transferWithCommission} tone="neutral" />
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(340px,1fr)]">
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,1fr)]">
         <PasteBox value={input} onChange={setInput} onParse={handleParse} isDisabled={!input.trim()} />
-        <ManualEntryPanel
-          onAdd={handleAddManualDraft}
-          onAddCategory={handleAddCategory}
-          onAddAccount={handleAddAccount}
-          onAddSubcategory={handleAddSubcategory}
-          noteSuggestions={noteSuggestions}
-          catalog={catalog}
-        />
+        <div className="flex flex-col gap-4">
+          {saveFeedback ? (
+            <p className="rounded-[18px] border border-sand bg-white/80 px-4 py-3 text-sm text-ink">{saveFeedback}</p>
+          ) : null}
+          <TransactionPreviewList
+            transactions={drafts}
+            catalog={catalog}
+            onAddCategory={handleAddCategory}
+            onAddAccount={handleAddAccount}
+            onAddSubcategory={handleAddSubcategory}
+            noteSuggestions={noteSuggestions}
+            onChange={handleDraftChange}
+            onDelete={handleDelete}
+            isSaving={isSaving}
+            onConfirm={() => {
+              void handleSave();
+            }}
+          />
+        </div>
       </section>
 
-      <section className="grid gap-6">
-        {saveFeedback ? (
-          <p className="rounded-[18px] border border-sand bg-white/80 px-4 py-3 text-sm text-ink">{saveFeedback}</p>
-        ) : null}
-        <TransactionPreviewList
-          transactions={drafts}
-          catalog={catalog}
-          onAddCategory={handleAddCategory}
-          onAddAccount={handleAddAccount}
-          onAddSubcategory={handleAddSubcategory}
-          noteSuggestions={noteSuggestions}
-          onChange={handleDraftChange}
-          onDelete={handleDelete}
-          isSaving={isSaving}
-          onConfirm={() => {
-            void handleSave();
-          }}
-        />
-      </section>
+      <ManualEntryPanel
+        onSave={handleSaveManualDraft}
+        onAddCategory={handleAddCategory}
+        onAddAccount={handleAddAccount}
+        onAddSubcategory={handleAddSubcategory}
+        noteSuggestions={noteSuggestions}
+        catalog={catalog}
+      />
     </div>
   );
 }
