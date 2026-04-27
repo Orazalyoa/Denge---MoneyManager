@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ManualEntryPanel } from "@/components/ManualEntryPanel";
 import { PasteBox } from "@/components/PasteBox";
 import { StatsCard } from "@/components/StatsCard";
 import { TransactionPreviewList } from "@/components/TransactionPreviewList";
 import { useAuth } from "@/context/AuthContext";
-import { DRAFT_QUEUE_STORAGE_KEY } from "@/infrastructure/storage/transactionStorageKeys";
+import {
+  getDraftQueueStorageKey,
+  LEGACY_DRAFT_QUEUE_STORAGE_KEY,
+} from "@/infrastructure/storage/transactionStorageKeys";
 import {
   getTransactions,
   loadCatalogForUser,
@@ -28,11 +31,14 @@ import type { DraftTransaction, Transaction } from "@/domain/transactions/types"
 
 export default function HomePage() {
   const { user, isLoading } = useAuth();
+  const draftStorageKey = useMemo(() => getDraftQueueStorageKey(user?.id), [user?.id]);
   const [input, setInput] = useState("");
   const [drafts, setDrafts] = useState<DraftTransaction[]>(() => {
     if (typeof window === "undefined") return [];
     try {
-      const raw = window.localStorage.getItem(DRAFT_QUEUE_STORAGE_KEY);
+      const raw =
+        window.localStorage.getItem(getDraftQueueStorageKey()) ??
+        window.localStorage.getItem(LEGACY_DRAFT_QUEUE_STORAGE_KEY);
       return raw ? (JSON.parse(raw) as DraftTransaction[]) : [];
     } catch {
       return [];
@@ -48,6 +54,7 @@ export default function HomePage() {
   const [isCatalogReady, setIsCatalogReady] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const previousDraftStorageKeyRef = useRef(draftStorageKey);
 
   const accounts = useMemo(() => getAccounts(catalog), [catalog]);
 
@@ -74,8 +81,26 @@ export default function HomePage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(DRAFT_QUEUE_STORAGE_KEY, JSON.stringify(drafts));
-  }, [drafts]);
+    window.localStorage.setItem(draftStorageKey, JSON.stringify(drafts));
+  }, [draftStorageKey, drafts]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const previousKey = previousDraftStorageKeyRef.current;
+    if (previousKey !== draftStorageKey) {
+      window.localStorage.setItem(previousKey, JSON.stringify(drafts));
+    }
+
+    previousDraftStorageKeyRef.current = draftStorageKey;
+
+    try {
+      const raw = window.localStorage.getItem(draftStorageKey);
+      setDrafts(raw ? (JSON.parse(raw) as DraftTransaction[]) : []);
+    } catch {
+      setDrafts([]);
+    }
+  }, [draftStorageKey]);
 
   const overallStats = useMemo(() => {
     const scoped =

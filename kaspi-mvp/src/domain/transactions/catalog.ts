@@ -1,5 +1,8 @@
 import type { TransactionType } from "@/domain/transactions/types";
-import { USER_CATALOG_STORAGE_KEY } from "@/infrastructure/storage/transactionStorageKeys";
+import {
+  getUserCatalogStorageKey,
+  LEGACY_USER_CATALOG_STORAGE_KEY,
+} from "@/infrastructure/storage/transactionStorageKeys";
 
 export type AccountKind = "bank_card" | "deposit" | "investment";
 
@@ -151,21 +154,24 @@ function normalizeCatalog(raw: unknown): UserCatalog {
   return { accounts, categories, subcategories, rules };
 }
 
-export function loadUserCatalog(): UserCatalog {
+export function loadUserCatalog(scope?: string): UserCatalog {
   if (typeof window === "undefined") return EMPTY_USER_CATALOG;
-  const raw = window.localStorage.getItem(USER_CATALOG_STORAGE_KEY);
+  const storageKey = getUserCatalogStorageKey(scope);
+  const raw = window.localStorage.getItem(storageKey) ?? (!scope ? window.localStorage.getItem(LEGACY_USER_CATALOG_STORAGE_KEY) : null);
   if (!raw) return EMPTY_USER_CATALOG;
 
   try {
-    return normalizeCatalog(JSON.parse(raw));
+    const normalized = normalizeCatalog(JSON.parse(raw));
+    window.localStorage.setItem(storageKey, JSON.stringify(normalized));
+    return normalized;
   } catch {
     return EMPTY_USER_CATALOG;
   }
 }
 
-export function saveUserCatalog(catalog: UserCatalog): void {
+export function saveUserCatalog(catalog: UserCatalog, scope?: string): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(USER_CATALOG_STORAGE_KEY, JSON.stringify(catalog));
+  window.localStorage.setItem(getUserCatalogStorageKey(scope), JSON.stringify(catalog));
 }
 
 export function getAccounts(catalog: UserCatalog = EMPTY_USER_CATALOG): FinanceAccount[] {

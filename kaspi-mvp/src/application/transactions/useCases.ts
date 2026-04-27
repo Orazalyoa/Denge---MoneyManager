@@ -42,7 +42,7 @@ async function getAllWithMigration(userId?: string): Promise<Transaction[]> {
   }
 
   const cloudRepository = new SupabaseTransactionRepository(userId);
-  const localRepository = new LocalStorageTransactionRepository();
+  const localRepository = new LocalStorageTransactionRepository(userId);
   const [cloudData, localData] = await Promise.all([cloudRepository.getAll(), localRepository.getAll()]);
 
   if (cloudData.length === 0 && localData.length === 0) {
@@ -197,7 +197,7 @@ export async function saveDraftTransactions(
     if (!userId) throw error;
 
     // Local-first fallback: keep user flow working even if cloud write temporarily fails.
-    await new LocalStorageTransactionRepository().saveMany(transactions);
+    await new LocalStorageTransactionRepository(userId).saveMany(transactions);
     return { savedCount: transactions.length, storage: "local" };
   }
 }
@@ -355,7 +355,7 @@ export async function deleteTransaction(id: string, userId?: string): Promise<vo
   await cloudRepository.deleteOne(id);
 
   // Keep local cache in sync with cloud-backed profile.
-  await new LocalStorageTransactionRepository().deleteOne(id);
+  await new LocalStorageTransactionRepository(userId).deleteOne(id);
 }
 
 export async function getTransactions(filter: TransactionFilter = "all", userId?: string): Promise<Transaction[]> {
@@ -380,7 +380,7 @@ export async function loadCatalogForUser(userId?: string): Promise<UserCatalog> 
     cloudCatalog.rules.length === 0;
 
   if (isCloudEmpty) {
-    const localCatalog = loadUserCatalog();
+    const localCatalog = loadUserCatalog(userId);
     const hasLocalData =
       localCatalog.accounts.length > 0 ||
       localCatalog.categories.length > 0 ||
@@ -388,18 +388,19 @@ export async function loadCatalogForUser(userId?: string): Promise<UserCatalog> 
       localCatalog.rules.length > 0;
     if (hasLocalData) {
       await new SupabaseCatalogRepository(userId).saveCatalog(localCatalog);
+      saveUserCatalog(localCatalog, userId);
       return localCatalog;
     }
 
     return EMPTY_USER_CATALOG;
   }
 
-  saveUserCatalog(cloudCatalog);
+  saveUserCatalog(cloudCatalog, userId);
   return cloudCatalog;
 }
 
 export async function saveCatalogForUser(catalog: UserCatalog, userId?: string): Promise<void> {
-  saveUserCatalog(catalog);
+  saveUserCatalog(catalog, userId);
   if (!userId) return;
   await new SupabaseCatalogRepository(userId).saveCatalog(catalog);
 }
