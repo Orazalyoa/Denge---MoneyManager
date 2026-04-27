@@ -74,11 +74,14 @@ export class SupabaseTransactionRepository implements TransactionRepository {
       .eq("user_id", this.userId)
       .order("created_at", { ascending: false });
 
-    if (error || !data) {
-      console.error("Failed to fetch transactions from Supabase", error);
+    if (error) {
+      console.error("❌ Supabase fetch failed:", error.message, error.code, `(user=${this.userId})`);
       return [];
     }
 
+    if (!data) return [];
+    
+    console.log("✅ Fetched from Supabase:", data.length, "transactions");
     return (data as SupabaseTransactionRow[]).map(toTransaction);
   }
 
@@ -88,8 +91,15 @@ export class SupabaseTransactionRepository implements TransactionRepository {
     const rows = transactions.map((tx) => toRow(this.userId, tx));
     const { error } = await supabase.from("transactions").upsert(rows, { onConflict: "id" });
     if (error) {
-      console.error("Failed to save transactions to Supabase", error);
+      console.error(
+        "❌ Supabase save failed:",
+        error.message,
+        error.code,
+        `(${transactions.length} items, user=${this.userId})`
+      );
       throw error;
+    } else {
+      console.log("✅ Synced to Supabase:", transactions.length, "transactions");
     }
   }
 
@@ -103,8 +113,10 @@ export class SupabaseTransactionRepository implements TransactionRepository {
       .eq("id", id);
 
     if (error) {
-      console.error("Failed to delete transaction from Supabase", error);
+      console.error("❌ Supabase delete failed:", error.message, error.code, `(id=${id}, user=${this.userId})`);
       throw error;
+    } else {
+      console.log("✅ Deleted from Supabase:", id);
     }
   }
 }

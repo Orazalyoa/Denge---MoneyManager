@@ -1,7 +1,9 @@
 import type { TransactionType } from "@/domain/transactions/types";
 import {
   getUserCatalogStorageKey,
+  LEGACY_STORAGE_SCOPE_OWNER_KEY,
   LEGACY_USER_CATALOG_STORAGE_KEY,
+  normalizeStorageScope,
 } from "@/infrastructure/storage/transactionStorageKeys";
 
 export type AccountKind = "bank_card" | "deposit" | "investment";
@@ -157,7 +159,25 @@ function normalizeCatalog(raw: unknown): UserCatalog {
 export function loadUserCatalog(scope?: string): UserCatalog {
   if (typeof window === "undefined") return EMPTY_USER_CATALOG;
   const storageKey = getUserCatalogStorageKey(scope);
-  const raw = window.localStorage.getItem(storageKey) ?? (!scope ? window.localStorage.getItem(LEGACY_USER_CATALOG_STORAGE_KEY) : null);
+  const scoped = window.localStorage.getItem(storageKey);
+  const legacy = window.localStorage.getItem(LEGACY_USER_CATALOG_STORAGE_KEY);
+  const legacyOwner = window.localStorage.getItem(LEGACY_STORAGE_SCOPE_OWNER_KEY);
+
+  let raw = scoped;
+  if (!raw && legacy) {
+    if (!scope) {
+      if (!legacyOwner || legacyOwner === "guest") {
+        raw = legacy;
+      }
+    } else {
+      const normalizedScope = normalizeStorageScope(scope);
+      if (!legacyOwner || legacyOwner === normalizedScope) {
+        raw = legacy;
+        window.localStorage.setItem(LEGACY_STORAGE_SCOPE_OWNER_KEY, normalizedScope);
+      }
+    }
+  }
+
   if (!raw) return EMPTY_USER_CATALOG;
 
   try {

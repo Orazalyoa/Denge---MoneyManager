@@ -8,7 +8,9 @@ import { TransactionPreviewList } from "@/components/TransactionPreviewList";
 import { useAuth } from "@/context/AuthContext";
 import {
   getDraftQueueStorageKey,
+  LEGACY_STORAGE_SCOPE_OWNER_KEY,
   LEGACY_DRAFT_QUEUE_STORAGE_KEY,
+  normalizeStorageScope,
 } from "@/infrastructure/storage/transactionStorageKeys";
 import {
   getTransactions,
@@ -29,17 +31,69 @@ import {
 import { calculateStats } from "@/domain/transactions/stats";
 import type { DraftTransaction, Transaction } from "@/domain/transactions/types";
 
+function readDraftQueue(scope?: string): DraftTransaction[] {
+  if (typeof window === "undefined") return [];
+
+  const storageKey = getDraftQueueStorageKey(scope);
+  const scoped = window.localStorage.getItem(storageKey);
+  if (scoped) {
+    return JSON.parse(scoped) as DraftTransaction[];
+  }
+
+  const legacy = window.localStorage.getItem(LEGACY_DRAFT_QUEUE_STORAGE_KEY);
+  if (!legacy) return [];
+
+  const legacyOwner = window.localStorage.getItem(LEGACY_STORAGE_SCOPE_OWNER_KEY);
+  if (!scope) {
+    if (legacyOwner && legacyOwner !== "guest") {
+      return [];
+    }
+
+    window.localStorage.setItem(storageKey, legacy);
+    return JSON.parse(legacy) as DraftTransaction[];
+  }
+
+  const normalizedScope = normalizeStorageScope(scope);
+  if (legacyOwner && legacyOwner !== normalizedScope) {
+    return [];
+  }
+
+  window.localStorage.setItem(storageKey, legacy);
+  window.localStorage.setItem(LEGACY_STORAGE_SCOPE_OWNER_KEY, normalizedScope);
+  return JSON.parse(legacy) as DraftTransaction[];
+}
+
+function claimGuestDraftQueue(scope?: string): DraftTransaction[] {
+  if (typeof window === "undefined" || !scope) return [];
+
+  const userKey = getDraftQueueStorageKey(scope);
+  const guestKey = getDraftQueueStorageKey();
+
+  try {
+    const userDrafts = readDraftQueue(scope);
+    const guestRaw = window.localStorage.getItem(guestKey);
+    const guestDrafts = guestRaw ? (JSON.parse(guestRaw) as DraftTransaction[]) : [];
+
+    if (guestDrafts.length === 0) {
+      return userDrafts;
+    }
+
+    const merged = [...userDrafts, ...guestDrafts.filter((draft) => !userDrafts.some((item) => item.id === draft.id))];
+    window.localStorage.setItem(userKey, JSON.stringify(merged));
+    window.localStorage.removeItem(guestKey);
+    return merged;
+  } catch {
+    return [];
+  }
+}
+
 export default function HomePage() {
   const { user, isLoading } = useAuth();
   const draftStorageKey = useMemo(() => getDraftQueueStorageKey(user?.id), [user?.id]);
   const [input, setInput] = useState("");
   const [drafts, setDrafts] = useState<DraftTransaction[]>(() => {
-    if (typeof window === "undefined") return [];
     try {
-      const raw =
-        window.localStorage.getItem(getDraftQueueStorageKey()) ??
-        window.localStorage.getItem(LEGACY_DRAFT_QUEUE_STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as DraftTransaction[]) : [];
+      return readDraftQueue();
     } catch {
       return [];
     }
@@ -95,12 +149,11 @@ export default function HomePage() {
     previousDraftStorageKeyRef.current = draftStorageKey;
 
     try {
-      const raw = window.localStorage.getItem(draftStorageKey);
-      setDrafts(raw ? (JSON.parse(raw) as DraftTransaction[]) : []);
+      setDrafts(user?.id ? claimGuestDraftQueue(user.id) : readDraftQueue());
     } catch {
       setDrafts([]);
     }
-  }, [draftStorageKey]);
+  }, [draftStorageKey, user?.id]);
 
   const overallStats = useMemo(() => {
     const scoped =
@@ -146,6 +199,7 @@ export default function HomePage() {
 
     setIsSaving(true);
     try {
+      console.log(`\ud83d\udcc4 Saving ${drafts.length} transactions, user=${user?.id ?? "guest"}`);
       const result = await saveDraftTransactions(drafts, user?.id, catalog);
       if (result.savedCount === 0) {
         setSaveFeedback("Nothing to save. Fill required fields in draft items.");
@@ -155,12 +209,16 @@ export default function HomePage() {
       setDrafts([]);
       setInput("");
       setSavedTick((prev) => prev + 1);
-      setSaveFeedback(
+      
+      const message =
         result.storage === "cloud"
-          ? "Transactions saved."
-          : "Saved locally. Cloud sync is temporarily unavailable.",
-      );
-    } catch {
+          ? `\u2705 Transactions saved to cloud and local cache (${result.savedCount} items)`
+          : `\u26a0\ufe0f Saved locally only - cloud sync unavailable. Your data is safe and will sync when online. (${result.savedCount} items)`;
+      
+      console.log(`\ud83d\udce4 Save result: ${message}`);
+      setSaveFeedback(message);
+    } catch (error) {
+      console.error("\u274c Save failed:", error);
       setSaveFeedback("Save failed. Please retry.");
     } finally {
       setIsSaving(false);

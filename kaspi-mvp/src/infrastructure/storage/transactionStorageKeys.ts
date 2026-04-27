@@ -5,6 +5,7 @@ const DRAFT_QUEUE_STORAGE_KEY_PREFIX = "kaspi_mvp_draft_queue_v2";
 export const LEGACY_TRANSACTIONS_STORAGE_KEY = "kaspi_mvp_transactions_v2";
 export const LEGACY_USER_CATALOG_STORAGE_KEY = "kaspi_mvp_user_catalog_v1";
 export const LEGACY_DRAFT_QUEUE_STORAGE_KEY = "kaspi_mvp_draft_queue_v1";
+export const LEGACY_STORAGE_SCOPE_OWNER_KEY = "kaspi_mvp_legacy_scope_owner_v1";
 
 export function normalizeStorageScope(scope?: string): string {
 	const trimmed = scope?.trim();

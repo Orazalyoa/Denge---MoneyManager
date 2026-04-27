@@ -2,7 +2,9 @@ import type { TransactionRepository } from "@/domain/transactions/repository";
 import type { Transaction } from "@/domain/transactions/types";
 import {
   getTransactionsStorageKey,
+  LEGACY_STORAGE_SCOPE_OWNER_KEY,
   LEGACY_TRANSACTIONS_STORAGE_KEY,
+  normalizeStorageScope,
 } from "@/infrastructure/storage/transactionStorageKeys";
 
 export class LocalStorageTransactionRepository implements TransactionRepository {
@@ -18,12 +20,26 @@ export class LocalStorageTransactionRepository implements TransactionRepository 
     const scoped = window.localStorage.getItem(this.storageKey);
     if (scoped) return scoped;
 
-    if (this.scope) return null;
-
     const legacy = window.localStorage.getItem(LEGACY_TRANSACTIONS_STORAGE_KEY);
     if (!legacy) return null;
 
+    const legacyOwner = window.localStorage.getItem(LEGACY_STORAGE_SCOPE_OWNER_KEY);
+    if (!this.scope) {
+      if (legacyOwner && legacyOwner !== "guest") {
+        return null;
+      }
+
+      window.localStorage.setItem(this.storageKey, legacy);
+      return legacy;
+    }
+
+    const normalizedScope = normalizeStorageScope(this.scope);
+    if (legacyOwner && legacyOwner !== normalizedScope) {
+      return null;
+    }
+
     window.localStorage.setItem(this.storageKey, legacy);
+    window.localStorage.setItem(LEGACY_STORAGE_SCOPE_OWNER_KEY, normalizedScope);
     return legacy;
   }
 
@@ -64,5 +80,10 @@ export class LocalStorageTransactionRepository implements TransactionRepository 
 
     const updated = (await this.getAll()).filter((tx) => tx.id !== id);
     window.localStorage.setItem(this.storageKey, JSON.stringify(updated));
+  }
+
+  clear(): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(this.storageKey);
   }
 }

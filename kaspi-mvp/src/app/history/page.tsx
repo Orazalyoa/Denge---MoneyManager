@@ -33,6 +33,7 @@ export default function HistoryPage() {
     return loadUserCatalog();
   });
   const [allByFilter, setAllByFilter] = useState<Transaction[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -63,16 +64,36 @@ export default function HistoryPage() {
   }, [allByFilter, selectedAccountId, calendarMode, selectedDate, selectedMonth]);
 
   const stats = useMemo(() => calculateStats(transactions), [transactions]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const handleDelete = (id: string) => {
     void (async () => {
-      await deleteTransaction(id, user?.id);
-      setTick((t) => t + 1);
+      setDeletingId(id);
+      setAllByFilter((prev) => prev.filter((tx) => tx.id !== id));
+      try {
+        await deleteTransaction(id, user?.id);
+        setTick((t) => t + 1);
+        setToastMessage("Transaction deleted successfully");
+        setTimeout(() => setToastMessage(null), 2000);
+      } catch (error) {
+        console.error("Delete failed:", error);
+        // Restore server/local truth when delete fails.
+        setTick((t) => t + 1);
+        setToastMessage("Failed to delete transaction");
+        setTimeout(() => setToastMessage(null), 3000);
+      } finally {
+        setDeletingId(null);
+      }
     })();
   };
 
   return (
     <div className="space-y-6 pb-8">
+      {toastMessage && (
+        <div className="fixed top-4 right-4 rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-card animate-rise z-50">
+          {toastMessage}
+        </div>
+      )}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
         <StatsCard label="income" value={stats.income} tone="income" />
         <StatsCard label="expense" value={stats.expense} tone="expense" />
@@ -190,9 +211,10 @@ export default function HistoryPage() {
                   <button
                     type="button"
                     onClick={() => handleDelete(tx.id)}
+                    disabled={deletingId === tx.id}
                     className="rounded-full border border-[#f3c3b7] px-3 py-1.5 text-xs font-semibold text-[#ad5f47] transition hover:bg-[#fff1ec]"
                   >
-                    Удалить
+                    {deletingId === tx.id ? "Удаление..." : "Удалить"}
                   </button>
                 </article>
               ))
